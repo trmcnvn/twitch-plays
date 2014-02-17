@@ -3,8 +3,8 @@ package main
 import (
   "./lib/win32"
   "fmt"
+  irc "github.com/fluffle/goirc/client"
   "github.com/laurent22/toml-go"
-  "github.com/thoj/go-ircevent"
   "time"
 )
 
@@ -21,7 +21,6 @@ type Input struct {
 }
 
 var (
-  // emulator key: windows virtual key
   validKeys = map[string]uint16{
     "a":     win32.VK_X,
     "b":     win32.VK_Z,
@@ -34,9 +33,9 @@ var (
   }
 )
 
-func inputHandler(inputs <-chan Input) {
+func inputHandler(in <-chan Input) {
   for {
-    input := <-inputs
+    input := <-in
     fmt.Printf("Handling: %v - %v\n", input.user, input.message)
 
     win32.SendInput(win32.INPUT{
@@ -60,55 +59,60 @@ func inputHandler(inputs <-chan Input) {
 }
 
 func main() {
-  var parser toml.Parser
-  doc := parser.ParseFile("config/app.conf")
+  var p toml.Parser
+  d := p.ParseFile("config/app.conf")
   twitch := Twitch{
-    user:    doc.GetString("twitch.user"),
-    token:   doc.GetString("twitch.token"),
-    channel: "#" + doc.GetString("twitch.channel"),
+    user:    d.GetString("twitch.user"),
+    token:   d.GetString("twitch.token"),
+    channel: "#" + d.GetString("twitch.channel"),
   }
 
-  inputs := make(chan Input)
-  go inputHandler(inputs)
+  in := make(chan Input)
+  go inputHandler(in)
 
   // make sure emulator window is open
-  handle := win32.FindWindow("DeSmuME", "DeSmuME 0.9.10 x64")
-  if handle == nil {
+  h := win32.FindWindow("DeSmuME", "DeSmuME 0.9.10 x64")
+  if h == nil {
     panic("Couldn't find emulator window.")
   }
-  fmt.Printf("Emulator Window: %v\n", handle)
+  fmt.Printf("Emulator Window: %v\n", h)
 
   // connect to TwitchTV chat
-  conn := irc.IRC(twitch.user, twitch.user)
-  conn.Password = twitch.token
-  err := conn.Connect("irc.twitch.tv:6667")
-  if err != nil {
-    panic("Couldn't connect to twitch.")
-  }
+  c := irc.SimpleClient(twitch.user)
 
-  conn.AddCallback("001", func(e *irc.Event) {
-    conn.Join(twitch.channel)
-    fmt.Printf("Joined the channel: %v\n", twitch.channel)
+  c.AddHandler("connected", func(conn *irc.Conn, line *irc.Line) {
+    c.Join(twitch.channel)
   })
 
-  conn.AddCallback("PRIVMSG", func(e *irc.Event) {
-    if e.Arguments[0] != twitch.channel {
+  quit := make(chan bool)
+  c.AddHandler("disconnected", func(conn *irc.Conn, line *irc.Line) {
+    quit <- true
+  })
+
+  c.AddHandler("privmsg", func(conn *irc.Conn, line *irc.Line) {
+    fmt.Println(line.Raw)
+
+    if line.Args[0] != twitch.channel {
       return
     }
 
-    user, message := e.Nick, e.Message()
+    user, message := line.Nick, line.Args[1]
     key, ok := validKeys[message]
     if !ok {
       return
     }
 
-    inputs <- Input{
+    in <- Input{
       user:    user,
       message: message,
       key:     key,
     }
   })
 
+  if err := c.Connect("irc.twitch.tv", twitch.token); err != nil {
+    panic("Couldn't connect to TwitchTV.")
+  }
+
   // keep the connection alive
-  conn.Loop()
+  <-quit
 }
