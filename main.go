@@ -79,7 +79,6 @@ func main() {
 
   // find emulator window
   handle := win32.FindWindow("DeSmuME", "DeSmuME 0.9.10 x64")
-  //handle := win32.FindWindow("Notepad", "Untitled - Notepad")
   if handle == nil {
     panic("Couldn't find emulator window.")
   }
