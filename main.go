@@ -70,8 +70,8 @@ func handleMessage(handle unsafe.Pointer, e *irc.Event) {
     fmt.Printf("%v: %v\n", user, message)
   }
 }
-func
- main() {
+
+func main() {
   // parse and validate config
   var parser toml.Parser
   doc := parser.ParseFile("config/app.conf")
