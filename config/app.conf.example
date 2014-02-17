@@ -1,0 +1,4 @@
+[twitch]
+user = "" # twitch username
+token = "" # http://twitchapps.com/tmi/
+channel = "" # twitch channel
