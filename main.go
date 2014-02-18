@@ -90,8 +90,6 @@ func main() {
   })
 
   c.AddHandler("privmsg", func(conn *irc.Conn, line *irc.Line) {
-    fmt.Println(line.Raw)
-
     if line.Args[0] != twitch.channel {
       return
     }
