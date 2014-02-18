@@ -1,112 +1,118 @@
 package main
 
 import (
+  "./lib/win32"
   "fmt"
-  "unsafe"
-  "time"
+  irc "github.com/fluffle/goirc/client"
   "github.com/laurent22/toml-go"
-  "github.com/thoj/go-ircevent"
-  "./lib"
+  "time"
 )
 
+type Twitch struct {
+  user    string
+  token   string
+  channel string
+}
+
+type Input struct {
+  user    string
+  message string
+  key     uint16
+}
+
 var (
-  // emulator key: windows virtual key
   validKeys = map[string]uint16{
-    "a": win32.VK_X,
-    "b": win32.VK_Z,
-    "x": win32.VK_S,
-    "y": win32.VK_A,
-    "up": win32.VK_UP,
-    "left": win32.VK_LEFT,
-    "down": win32.VK_DOWN,
+    "a":     win32.VK_X,
+    "b":     win32.VK_Z,
+    "x":     win32.VK_S,
+    "y":     win32.VK_A,
+    "up":    win32.VK_UP,
+    "left":  win32.VK_LEFT,
+    "down":  win32.VK_DOWN,
     "right": win32.VK_RIGHT,
   }
 )
 
-// makes sure our config file includes the values we need
-func validateConf(doc toml.Document) {
-  _, user := doc.GetValue("twitch.user")
-  _, token := doc.GetValue("twitch.token")
-  _, channel := doc.GetValue("twitch.channel")
+func inputHandler(in <-chan Input) {
+  for {
+    input := <-in
+    fmt.Printf("Handling: %v - %v\n", input.user, input.message)
 
-  if !user || !token || !channel {
-    panic("Couldn't validate config file.")
-  }
-}
-
-// handles messages sent to the twitch channel
-func handleMessage(handle unsafe.Pointer, e *irc.Event) {
-  user, message := e.Nick, e.Message()
-  key, ok := validKeys[message]
-  if ok {
-    // send the input as a keydown event
     win32.SendInput(win32.INPUT{
       Type: win32.INPUT_KEYBOARD,
       Ki: win32.KEYBDINPUT{
-        WVk: key,
-        WScan: 0,
+        WVk:     input.key,
         DwFlags: win32.KEYEVENTF_KEYDOWN,
-        Time: 0,
-        DwExtraInfo: 0,
       },
     })
 
-    // give it some time
     time.Sleep(200 * time.Millisecond)
 
-    // resend the key as a keyup event
     win32.SendInput(win32.INPUT{
-      Type: win32.INPUT_KEYBOARD, 
+      Type: win32.INPUT_KEYBOARD,
       Ki: win32.KEYBDINPUT{
-        WVk: key,
-        WScan: 0,
+        WVk:     input.key,
         DwFlags: win32.KEYEVENTF_KEYUP,
-        Time: 0,
-        DwExtraInfo: 0,
       },
     })
-
-    // output on our console
-    fmt.Printf("%v: %v\n", user, message)
   }
 }
 
 func main() {
-  // parse and validate config
-  var parser toml.Parser
-  doc := parser.ParseFile("config/app.conf")
-  validateConf(doc)
+  var p toml.Parser
+  d := p.ParseFile("config/app.conf")
+  twitch := Twitch{
+    user:    d.GetString("twitch.user"),
+    token:   d.GetString("twitch.token"),
+    channel: "#" + d.GetString("twitch.channel"),
+  }
 
-  // find emulator window
-  handle := win32.FindWindow("DeSmuME", "DeSmuME 0.9.10 x64")
-  if handle == nil {
+  in := make(chan Input)
+  go inputHandler(in)
+
+  // make sure emulator window is open
+  h := win32.FindWindow("DeSmuME", "DeSmuME 0.9.10 x64")
+  if h == nil {
     panic("Couldn't find emulator window.")
   }
-  fmt.Printf("Emulator Window: %v\n", handle)
+  fmt.Printf("Emulator Window: %v\n", h)
 
-  // connect to twitch IRC
-  user := doc.GetString("twitch.user")
-  conn := irc.IRC(user, user)
-  conn.Password = doc.GetString("twitch.token")
-  err := conn.Connect("irc.twitch.tv:6667")
-  if err != nil {
-    panic("Couldn't connect to twitch.")
-  }
+  // connect to TwitchTV chat
+  c := irc.SimpleClient(twitch.user)
 
-  // join channel on connectionc
-  channel := "#" + doc.GetString("twitch.channel")
-  conn.AddCallback("001", func (e *irc.Event) {
-    conn.Join(channel)
-    fmt.Printf("Joined the channel: %v\n", channel)
+  c.AddHandler("connected", func(conn *irc.Conn, line *irc.Line) {
+    c.Join(twitch.channel)
   })
 
-  // handle messages to the channel
-  conn.AddCallback("PRIVMSG", func(e *irc.Event) {
-    if e.Arguments[0] == channel {
-      handleMessage(handle, e)
+  quit := make(chan bool)
+  c.AddHandler("disconnected", func(conn *irc.Conn, line *irc.Line) {
+    quit <- true
+  })
+
+  c.AddHandler("privmsg", func(conn *irc.Conn, line *irc.Line) {
+    fmt.Println(line.Raw)
+
+    if line.Args[0] != twitch.channel {
+      return
+    }
+
+    user, message := line.Nick, line.Args[1]
+    key, ok := validKeys[message]
+    if !ok {
+      return
+    }
+
+    in <- Input{
+      user:    user,
+      message: message,
+      key:     key,
     }
   })
 
+  if err := c.Connect("irc.twitch.tv", twitch.token); err != nil {
+    panic("Couldn't connect to TwitchTV.")
+  }
+
   // keep the connection alive
-  conn.Loop()
+  <-quit
 }

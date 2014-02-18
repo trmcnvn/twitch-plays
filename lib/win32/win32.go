@@ -6,9 +6,9 @@ import (
 )
 
 var (
-  moduser32 = syscall.NewLazyDLL("user32.dll")
+  moduser32      = syscall.NewLazyDLL("user32.dll")
   procFindWindow = moduser32.NewProc("FindWindowW")
-  procSendInput = moduser32.NewProc("SendInput")
+  procSendInput  = moduser32.NewProc("SendInput")
 )
 
 func SendInput(input INPUT) uint {
