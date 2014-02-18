@@ -9,6 +9,7 @@ import (
 )
 
 type Twitch struct {
+  host    string
   user    string
   token   string
   channel string
@@ -62,6 +63,7 @@ func main() {
   var p toml.Parser
   d := p.ParseFile("config/app.conf")
   twitch := Twitch{
+    host:    d.GetString("twitch.host"),
     user:    d.GetString("twitch.user"),
     token:   d.GetString("twitch.token"),
     channel: "#" + d.GetString("twitch.channel"),
@@ -107,7 +109,7 @@ func main() {
     }
   })
 
-  if err := c.Connect("irc.twitch.tv", twitch.token); err != nil {
+  if err := c.Connect(twitch.host, twitch.token); err != nil {
     panic("Couldn't connect to TwitchTV.")
   }
 

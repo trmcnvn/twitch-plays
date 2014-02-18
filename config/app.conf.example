@@ -1,4 +1,5 @@
 [twitch]
+host = "irc.twitch.tv" # host:[port]
 user = "" # twitch username
 token = "" # http://twitchapps.com/tmi/
 channel = "" # twitch channel
